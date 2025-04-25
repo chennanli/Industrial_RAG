@@ -1,0 +1,45 @@
+# Python virtual environment
+qwen25_env/
+venv/
+env/
+ENV/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Example file (as requested)
+example.py
+
+# Temporary files
+*.swp
+*.swo
+.DS_Store
+*.tmp
+
+# Logs and databases
+*.log
+*.sqlite
+
+# User-specific IDE settings
+.idea/
+.vscode/
+*.sublime-*
+*.code-workspace
+
+# Keep directories but not their content
+frames/*
+!frames/.gitkeep
+
+# Optional: If you want to exclude large files from videos or images
+# Uncomment these if needed
+# videos/*.mp4
+# videos/*.mov
+# images/*.jpg
+# images/*.png

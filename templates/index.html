@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qwen2.5-VL Video Analysis</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 20px;
+        }
+        .frame-result {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .frame-result.match {
+            border-color: #4CAF50;
+            background-color: #e8f5e9;
+        }
+        .frame-image {
+            max-width: 100%;
+            height: auto;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+        .loading {
+            text-align: center;
+            margin: 20px 0;
+            display: none;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status-message {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .status-message.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-message.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Qwen2.5-VL Video Analysis</h1>
+        
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="video">Upload Video:</label>
+                <input type="file" id="video" name="video" accept="video/*" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="object_str">Object to Detect:</label>
+                <input type="text" id="object_str" name="object_str" placeholder="e.g., person, car, dog" required>
+            </div>
+            
+            <button type="submit" id="analyzeBtn">Analyze Video</button>
+        </form>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Analyzing video... This may take several minutes depending on the video length.</p>
+        </div>
+        
+        <div id="statusMessage" class="status-message"></div>
+        
+        <div class="results" id="results"></div>
+    </div>
+    
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            const videoFile = document.getElementById('video').files[0];
+            const objectStr = document.getElementById('object_str').value;
+            
+            if (!videoFile || !objectStr) {
+                showStatus('Please select a video file and enter an object to detect.', 'error');
+                return;
+            }
+            
+            formData.append('video', videoFile);
+            formData.append('object_str', objectStr);
+            
+            // Clear previous results
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('statusMessage').innerHTML = '';
+            document.getElementById('statusMessage').className = 'status-message';
+            
+            // Show loading spinner
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('analyzeBtn').disabled = true;
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Server error');
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const text = decoder.decode(value);
+                    const lines = text.split('\n').filter(line => line.trim());
+                    
+                    for (const line of lines) {
+                        try {
+                            const data = JSON.parse(line);
+                            
+                            if (data.status === 'success') {
+                                const frame = data.frame;
+                                const resultDiv = document.createElement('div');
+                                resultDiv.className = frame.is_match ? 'frame-result match' : 'frame-result';
+                                
+                                resultDiv.innerHTML = `
+                                    <h3>Frame at ${frame.second} seconds</h3>
+                                    <p><strong>Match:</strong> ${frame.is_match ? 'YES' : 'NO'}</p>
+                                    <p><strong>Confidence:</strong> ${frame.confidence}/10</p>
+                                    <p><strong>Description:</strong> ${frame.description}</p>
+                                    <img src="${frame.frame_path}" class="frame-image" alt="Frame at ${frame.second} seconds">
+                                `;
+                                
+                                document.getElementById('results').prepend(resultDiv);
+                            } else if (data.status === 'complete') {
+                                showStatus(data.message, 'success');
+                            } else if (data.status === 'error') {
+                                showStatus(`Error: ${data.message}`, 'error');
+                            }
+                        } catch (e) {
+                            console.error('Error parsing JSON:', e);
+                        }
+                    }
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                // Hide loading spinner
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        });
+        
+        function showStatus(message, type) {
+            const statusElement = document.getElementById('statusMessage');
+            statusElement.textContent = message;
+            statusElement.className = `status-message ${type}`;
+        }
+    </script>
+</body>
+</html>
