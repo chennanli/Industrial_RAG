@@ -356,9 +356,15 @@ async def analyze_video(
 
 if __name__ == "__main__":
     import uvicorn
+    import argparse
+
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="Run the Qwen2.5-VL Video Analysis FastAPI app.")
+    parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
+    args = parser.parse_args()
     
     # Load model at startup
     asyncio.run(load_model())
     
-    # Run the FastAPI app
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Run the FastAPI app using the specified port
+    uvicorn.run(app, host="0.0.0.0", port=args.port)

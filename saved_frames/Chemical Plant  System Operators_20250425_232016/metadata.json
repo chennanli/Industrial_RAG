@@ -1,0 +1,58 @@
+{
+  "video_name": "Chemical Plant  System Operators.f134.mp4",
+  "content_hash": "20b316281a9f91e5b46e99f39c2f9d94",
+  "frame_interval": 10,
+  "max_frames": 15,
+  "timestamp": "2025-04-25T23:20:16.536910",
+  "frame_count": 12,
+  "frames": [
+    [
+      0,
+      "frame_0s.jpg"
+    ],
+    [
+      10,
+      "frame_10s.jpg"
+    ],
+    [
+      20,
+      "frame_20s.jpg"
+    ],
+    [
+      30,
+      "frame_30s.jpg"
+    ],
+    [
+      40,
+      "frame_40s.jpg"
+    ],
+    [
+      50,
+      "frame_50s.jpg"
+    ],
+    [
+      60,
+      "frame_60s.jpg"
+    ],
+    [
+      70,
+      "frame_70s.jpg"
+    ],
+    [
+      80,
+      "frame_80s.jpg"
+    ],
+    [
+      90,
+      "frame_90s.jpg"
+    ],
+    [
+      100,
+      "frame_100s.jpg"
+    ],
+    [
+      110,
+      "frame_110s.jpg"
+    ]
+  ]
+}
