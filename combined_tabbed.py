@@ -623,7 +623,7 @@ Relevant information from technical documentation:
 
 My question: {query}
 
-Please provide a concise but complete answer based on both the video content and the technical documentation. Include specific recommendations and steps to address any issues identified. Be thorough but avoid unnecessary verbosity."""
+Please provide a concise but complete answer based on both the video content and the technical documentation. Include specific recommendations and steps to address any issues identified. Be thorough but avoid unnecessary verbosity. Please ensure your answer is complete and includes all relevant details."""
 
         # Use the most representative frame for the final query
         if frames and len(frames) > 0:
@@ -1380,7 +1380,7 @@ def get_frames_from_session(session_dir):
     
     frames = []
     frame_files = sorted([
-        os.path.join(session_dir, f) for f in os.listdir(session_dir) 
+        f for f in os.listdir(session_dir) 
         if (f.endswith('.jpg') or f.endswith('.png')) and f.startswith('frame_')
     ])
     
@@ -1409,6 +1409,156 @@ def view_saved_frames(session_dir):
     
     print(f"Found {len(frame_files)} frames in {session_dir}")
     return frame_files
+
+def analyze_loaded_frames(session_dir, object_str, progress=gr.Progress()):
+    """Analyze frames from an existing session directory"""
+    if not session_dir or not os.path.exists(session_dir):
+        return "No session selected. Please select a session first.", "No session selected."
+    
+    try:
+        start_time = time.time()
+        progress(0, desc="Starting analysis of loaded frames...")
+        print(f"Analyzing frames in session: {session_dir}")
+        
+        # Get frames from the session
+        frames = get_frames_from_session(session_dir)
+        
+        if not frames:
+            return "No frames found in the selected session.", "No frames found."
+        
+        # Analyze the frames
+        results = []
+        detections = []
+        first_detected_frame_details = None  # Store the full details of the first detection
+        consecutive_detections = 0
+        first_detection_second = None
+        
+        for i, (second, frame_path) in enumerate(frames):
+            progress(i / len(frames), desc=f"Analyzing frame at {second}s...")
+            print(f"Processing frame {i+1}/{len(frames)}: {frame_path}")
+            
+            # Check if file exists
+            if not os.path.exists(frame_path):
+                print(f"Warning: Frame file does not exist: {frame_path}")
+                continue
+            
+            # Preprocess the frame
+            if not preprocess_image(frame_path):
+                print(f"Warning: Could not preprocess frame: {frame_path}")
+                continue
+            
+            # Analyze the frame
+            try:
+                response = basic_image_analysis(frame_path, object_str)
+                print(f"Analysis response: {response[:100]}...")  # Print first 100 chars for debugging
+                
+            except Exception as e:
+                print(f"Error analyzing frame {frame_path}: {str(e)}")
+                results.append(f"Frame at {second}s: ERROR - {str(e)}\n\n")
+                continue
+            
+            # Parse the response (assuming basic_image_analysis returns the structured format if object_str is provided)
+            is_match = False
+            confidence = 0
+            
+            # Check if the response is in the structured format
+            if object_str and "Answer:" in response and "Confidence:" in response:
+                for line in response.strip().split('\n'):
+                    line = line.strip()
+                    if line.lower().startswith('answer:'):
+                        answer = line.split(':', 1)[1].strip().upper()
+                        is_match = answer == "YES"
+                    elif line.lower().startswith('confidence:'):
+                        try:
+                            confidence = int(line.split(':', 1)[1].strip())
+                        except ValueError:
+                            confidence = 0
+            
+                # Track all detections with confidence info
+                if is_match:
+                    detections.append((second, confidence))
+                    # Store the full details of the first detected frame for summary
+                    if not first_detected_frame_details:
+                        first_detected_frame_details = {
+                            'second': second,
+                            'confidence': confidence,
+                            'response': response,
+                            'full_text': f"Frame at {second}s: DETECTED (Confidence: {confidence}/10)\n{response}"
+                        }
+                    
+                # Track consecutive high-confidence detections
+                if is_match and confidence >= 7:
+                    consecutive_detections += 1
+                    if consecutive_detections == 1:
+                        first_detection_second = second
+                else:
+                    consecutive_detections = 0
+                    
+                # Add result - show DETECTED if answer is YES, regardless of confidence
+                # But note the confidence score separately
+                detection_status = "DETECTED" if is_match else "NOT DETECTED"
+                high_confidence = confidence >= 7
+                confidence_note = f"(High Confidence: {confidence}/10)" if high_confidence else f"(Low Confidence: {confidence}/10)"
+                
+                results.append(f"Frame at {second}s: {detection_status} {confidence_note}\n{response}\n\n")
+                
+                # Stop after 2 consecutive detections
+                if consecutive_detections >= 2:
+                    results.append(f"\n\nObject detected consecutively, first detection at second {first_detection_second}")
+                    break
+            else:
+                # If no object_str or not in structured format, just append the description
+                results.append(f"Frame at {second}s:\n{response}\n\n")
+
+        if not results:
+            return "No frames could be analyzed.", "No frames could be analyzed."
+        
+        # Create a summary of the analysis
+        summary = ""
+        if object_str and detections:
+            # Sort by confidence (highest first)
+            detections.sort(key=lambda x: x[1], reverse=True)
+            top_detections = detections[:3]  # Top 3 detections
+            
+            detection_strs = [f"{object_str} at {second}s (Confidence: {confidence}/10)"
+                             for second, confidence in top_detections]
+            
+            end_time = time.time()
+            processing_time = end_time - start_time
+            
+            # Include first detection details in summary
+            summary = f"### Analysis Summary\n\n"
+            summary += f"**ANSWER**: YES\n\n"
+            summary += f"**CONFIDENCE**: High confidence detections found\n\n"
+            summary += f"**PROCESSING TIME**: {processing_time:.2f}s\n\n"
+            
+            # Add the first detection details to the summary
+            if first_detected_frame_details:
+                summary += f"### First Detection Details\n\n"
+                summary += first_detected_frame_details['full_text']
+            
+        elif object_str and not detections:
+            end_time = time.time()
+            processing_time = end_time - start_time
+            summary = f"### Analysis Summary\n\n"
+            summary += f"**ANSWER**: NO\n\n"
+            summary += f"**CONFIDENCE**: No high confidence detections found\n\n"
+            summary += f"**PROCESSING TIME**: {processing_time:.2f}s"
+        else:
+            end_time = time.time()
+            processing_time = end_time - start_time
+            summary = f"### Analysis Summary\n\n"
+            summary += f"Analysis of {len(frames)} frames completed.\n\n"
+            summary += f"**PROCESSING TIME**: {processing_time:.2f}s"
+            
+        return "\n".join(results), summary
+    
+    except Exception as e:
+        import traceback
+        traceback_str = traceback.format_exc()
+        print(f"Error during frame analysis: {str(e)}")
+        print(f"Traceback: {traceback_str}")
+        return f"Error during frame analysis: {str(e)}", f"### Error\n\n{str(e)}"
 
 def delete_session(session_dir):
     """Delete a session directory"""
@@ -1493,7 +1643,7 @@ footer {
     border: 1px solid #e5e7eb;
     line-height: 1.6;
 }
-.result-box p, .result-box li, .result-box span, .result-box div {
+.result-box p, .result-box li, .result-box span, .result-box div, .result-box strong, .result-box b {
     color: #111827 !important; /* Ensure child elements also inherit text color */
 }
 .result-box h1, .result-box h2, .result-box h3, .result-box h4, .result-box h5, .result-box h6 {
@@ -1501,6 +1651,11 @@ footer {
      margin-top: 16px;
      margin-bottom: 8px;
      font-weight: bold;
+}
+/* Special styling for summary content */
+.result-box strong, .result-box b {
+    font-weight: bold;
+    color: #000000 !important;
 }
 .source-box {
     background-color: #f9fafb;
@@ -1573,6 +1728,31 @@ footer {
 body {
     background-color: #fff8e1; /* Light warm background for the entire page */
 }
+
+/* Make gallery scrollable */
+.scrollable-gallery {
+    max-height: 600px;
+    overflow-y: auto !important;
+    padding-right: 10px;
+}
+
+.scrollable-gallery::-webkit-scrollbar {
+    width: 8px;
+}
+
+.scrollable-gallery::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.scrollable-gallery::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.scrollable-gallery::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
 """
 
 with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
@@ -1633,23 +1813,25 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
             with gr.Row():
                 with gr.Column(scale=1):
                     gr.Markdown("### Image Analysis", elem_classes="header-text")
-                    basic_image_input = gr.Image(type="filepath", label="Upload Image")
-                    basic_image_object_input = gr.Textbox(
-                        placeholder="Enter object to identify (optional)",
-                        label="Object to Identify"
-                    )
-                    basic_image_analyze_btn = gr.Button("Analyze Image", variant="secondary")
+                    with gr.Group(elem_classes="panel"):
+                        basic_image_input = gr.Image(type="filepath", label="Upload Image")
+                        basic_image_object_input = gr.Textbox(
+                            placeholder="Enter object to identify (optional)",
+                            label="Object to Identify"
+                        )
+                        basic_image_analyze_btn = gr.Button("Analyze Image", variant="secondary", elem_classes="submit-btn")
                 
                 with gr.Column(scale=2):
                     gr.Markdown("### Analysis Result", elem_classes="header-text")
-                    basic_image_output = gr.Textbox(label="Result", lines=20, interactive=False)
+                    with gr.Group(elem_classes="panel"):
+                        basic_image_output = gr.Markdown(elem_classes="result-box", label="Result")
 
         # Tab 3: Video Analysis & Sessions
         with gr.TabItem("Video Analysis & Sessions"):
             video_session_dir_state = gr.State(None) # State to hold the current session directory
             with gr.Row():
                 with gr.Column(scale=1):
-                    with gr.Group():
+                    with gr.Group(elem_classes="panel"):
                         gr.Markdown("### Process New Video", elem_classes="header-text")
                         basic_video_input = gr.Video(label="Upload Video")
                         basic_video_object_input = gr.Textbox(
@@ -1676,9 +1858,9 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
                                 info="Maximum number of frames to extract and process"
                             )
                         
-                        basic_video_analyze_btn = gr.Button("Analyze Video", variant="secondary")
+                        basic_video_analyze_btn = gr.Button("Analyze Video", variant="secondary", elem_classes="submit-btn")
                     
-                    with gr.Group():
+                    with gr.Group(elem_classes="panel"):
                         gr.Markdown("### Use Existing Frames", elem_classes="header-text")
                         session_choices, all_sessions_data = get_session_choices()
                         session_dropdown = gr.Dropdown(
@@ -1686,18 +1868,46 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
                             label="Select Saved Frame Session",
                             info="Choose a previously extracted frame set"
                         )
+                        # Add object detection input for existing frames
+                        existing_object_input = gr.Textbox(
+                            placeholder="Enter object to identify (optional)",
+                            label="Object to Identify",
+                            value="person"
+                        )
+                        
                         with gr.Row():
-                            refresh_sessions_btn = gr.Button("Refresh List", variant="secondary")
+                            refresh_sessions_btn = gr.Button("Refresh List", variant="secondary", elem_classes="submit-btn")
                             delete_selected_session_btn = gr.Button("Delete Selected Session", variant="stop")
+                            
+                        # Add analyze loaded images button
+                        analyze_loaded_images_btn = gr.Button("Analyze Loaded Images", variant="primary", elem_classes="submit-btn")
                 
                 with gr.Column(scale=2):
-                    gr.Markdown("### Analysis Results", elem_classes="header-text")
-                    basic_video_output = gr.Textbox(label="Results", lines=15, interactive=False)
-                    basic_video_summary = gr.Textbox(label="Summary", lines=3, interactive=False)
+                    with gr.Group(elem_classes="panel"):
+                        gr.Markdown("### Analysis Results", elem_classes="header-text")
+                        basic_video_output = gr.Markdown(elem_classes="result-box", label="Analysis Results")
+                        
+                        gr.Markdown("### Analysis Summary", elem_classes="header-text")
+                        basic_video_summary = gr.Markdown(elem_classes="result-box", label="Summary")
                     
                     gr.Markdown("### Frames Gallery", elem_classes="header-text")
-                    session_frames_gallery = gr.Gallery(label="Extracted Frames", show_label=True, columns=4, height="auto")
-                    session_info_display = gr.Textbox(label="Session Info", interactive=False)
+                    with gr.Group(elem_classes="panel"):
+                        # Use ScrollableGallery with more rows and configurable height to allow scrolling 
+                        session_frames_gallery = gr.Gallery(
+                            label="Extracted Frames",
+                            show_label=True,
+                            columns=4,
+                            rows=3,
+                            height="600px",
+                            allow_preview=True,
+                            show_download_button=True,
+                            elem_classes="gallery-box scrollable-gallery",
+                            visible=True
+                        )
+                        session_info_display = gr.Markdown(
+                            label="Session Info", 
+                            elem_classes="result-box"
+                        )
 
     # --- Event Handlers ---
 
@@ -1721,11 +1931,28 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
     )
 
     # Video Analysis & Sessions Tab Handlers
+    # Process new video and directly update gallery with extracted frames
     basic_video_analyze_btn.click(
-        fn=basic_video_analysis,
+        fn=lambda video_path, object_str, interval, max_frames: (
+            basic_video_analysis(video_path, object_str, interval, max_frames)[0],  # Analysis output
+            basic_video_analysis(video_path, object_str, interval, max_frames)[1],  # Summary
+            extract_frames(video_path, FRAMES_DIR, interval, max_frames)[1] if video_path else None  # Session dir
+        ),
         inputs=[basic_video_input, basic_video_object_input, basic_video_frame_interval, basic_video_max_frames],
-        outputs=[basic_video_output, basic_video_summary]
+        outputs=[basic_video_output, basic_video_summary, video_session_dir_state]
+    ).then(
+        # After video processing, update the gallery with the frames
+        fn=lambda session_dir: view_saved_frames(session_dir) if session_dir else [],
+        inputs=[video_session_dir_state],
+        outputs=[session_frames_gallery]
+    ).then(
+        # Update session info display
+        fn=lambda session_dir: f"Current Session: {session_dir}\n\nThis gallery displays all frames extracted from the video." if session_dir else "No session selected",
+        inputs=[video_session_dir_state],
+        outputs=[session_info_display]
     )
+    
+    # Refresh session list
     refresh_sessions_btn.click(
         fn=refresh_session_list,
         inputs=[],
@@ -1735,7 +1962,19 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
         fn=lambda: gr.update(value=None), # Use gr.update to clear dropdown
         inputs=[],
         outputs=[session_dropdown]
+    ).then(
+        # Clear the gallery when no session is selected
+        fn=lambda: [],
+        inputs=[],
+        outputs=[session_frames_gallery]
+    ).then(
+        # Clear session info
+        fn=lambda: "No session selected",
+        inputs=[],
+        outputs=[session_info_display]
     )
+    
+    # Delete session
     delete_selected_session_btn.click(
         fn=lambda choice, sessions_data: delete_session(sessions_data[session_choices.index(choice)]['session_dir']) if choice and choice in session_choices else "No session selected",
         inputs=[session_dropdown, gr.State(all_sessions_data)], # Pass all_sessions_data as state
@@ -1745,15 +1984,48 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
         inputs=[],
         outputs=[session_dropdown]
     ).then(
-        # After refreshing, clear the selection and gallery
-        fn=lambda: (gr.update(value=None), [], "Session deleted. Select a new session."),
+        # After refreshing, clear selection, gallery, and update info text
+        fn=lambda: (gr.update(value=None), [], "Session deleted. Select a new session to view frames."),
         inputs=[],
         outputs=[session_dropdown, session_frames_gallery, session_info_display]
     )
+    
+    # Session dropdown change handler
     session_dropdown.change(
-        fn=lambda choice, sessions_data: (view_saved_frames(sessions_data[session_choices.index(choice)]['session_dir']), format_session_info(sessions_data[session_choices.index(choice)])) if choice and choice in session_choices else ([], "No session selected"),
+        # When a session is selected, store its directory in the state
+        fn=lambda choice, sessions_data: sessions_data[session_choices.index(choice)]['session_dir'] if choice and choice in session_choices else None,
         inputs=[session_dropdown, gr.State(all_sessions_data)], # Pass all_sessions_data as state
-        outputs=[session_frames_gallery, session_info_display]
+        outputs=[video_session_dir_state]
+    ).then(
+        # Show the frames in the gallery when session_dir changes
+        fn=lambda session_dir: view_saved_frames(session_dir) if session_dir else [],
+        inputs=[video_session_dir_state],
+        outputs=[session_frames_gallery]
+    ).then(
+        # Update session info
+        fn=lambda choice, sessions_data: format_session_info(sessions_data[session_choices.index(choice)]) if choice and choice in session_choices else "No session selected",
+        inputs=[session_dropdown, gr.State(all_sessions_data)],
+        outputs=[session_info_display]
+    )
+    
+    # State change handler for video_session_dir_state
+    video_session_dir_state.change(
+        # Show frames when the session directory changes
+        fn=lambda session_dir: view_saved_frames(session_dir) if session_dir else [],
+        inputs=[video_session_dir_state],
+        outputs=[session_frames_gallery]
+    )
+    
+    # Analyze loaded images button handler
+    analyze_loaded_images_btn.click(
+        fn=lambda session_dir, object_str, progress=gr.Progress(): (
+            "No session selected. Please select a session first.", 
+            "No session selected."
+        ) if not session_dir else (
+            analyze_loaded_frames(session_dir, object_str, progress)
+        ),
+        inputs=[video_session_dir_state, existing_object_input],
+        outputs=[basic_video_output, basic_video_summary]
     )
 
 # Launch the application
