@@ -45,3 +45,5 @@ frames/*
 # images/*.png
 archieved/
 saved_frames/
+*.backup
+*_copy.py
