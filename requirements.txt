@@ -1,15 +1,33 @@
+# Core dependencies
 gradio>=4.0.0
 transformers>=4.35.0
 torch>=2.0.0
-pillow>=10.0.0
-qwen-vl-utils==0.0.8
+numpy>=1.24.0
+
+# RAG Dependencies
+langchain>=0.0.267
+langchain-community
+faiss-cpu>=1.7.4
+sentence-transformers>=2.2.2
+
+# PDF Processing (install at least one)
+pymupdf>=1.22.5  # Primary PDF processor (fitz)
+pdfplumber>=0.10.0  # Alternative PDF processor
+
+# Image and video processing
 opencv-python>=4.8.0
+Pillow>=10.0.0
+qwen-vl-utils==0.0.8
+
+# LM Studio integration
+openai>=1.0.0
+
+# Web framework and utilities
 fastapi>=0.104.0
 uvicorn>=0.23.0
 python-multipart>=0.0.6
 jinja2>=3.1.2
 aiofiles>=23.2.1
-langchain
-langchain-community
-faiss-cpu
-sentence-transformers
+
+# Fallback dependencies
+scikit-learn>=1.3.0  # For when LangChain is not installed

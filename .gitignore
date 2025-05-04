@@ -14,14 +14,13 @@ dist/
 build/
 *.egg-info/
 
-# Example file (as requested)
-example.py
-
 # Temporary files
 *.swp
 *.swo
 .DS_Store
 *.tmp
+*.backup
+*_copy.py
 
 # Logs and databases
 *.log
@@ -33,17 +32,26 @@ example.py
 *.sublime-*
 *.code-workspace
 
-# Keep directories but not their content
-frames/*
-!frames/.gitkeep
-
-# Optional: If you want to exclude large files from videos or images
-# Uncomment these if needed
-# videos/*.mp4
-# videos/*.mov
-# images/*.jpg
-# images/*.png
-archieved/
+# Project specific directories (keep structure but ignore content)
+frame_cache/
+offload_folder/
 saved_frames/
-*.backup
-*_copy.py
+archieved/
+videos/
+
+# Data files that shouldn't be in git
+*.dat
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# RAG files
+RAG_pdf/
+
+# Temporary and cache files
+.git/objects/pack/tmp_pack*
+
+# Keep important files
+!README.md
+!requirements.txt
