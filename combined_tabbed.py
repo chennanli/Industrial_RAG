@@ -14,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import openai # Added for LM Studio interaction
 
 # Check if PyMuPDF is installed, if not use alternative approach
 try:
@@ -65,6 +66,237 @@ except ImportError:
     OPENCV_AVAILABLE = False
 
 
+# --- Model Configuration ---
+MODEL_CONFIG = {
+    "source": "HuggingFace", # Default: "HuggingFace" or "LMStudio"
+    "lm_studio_url": "http://localhost:1234/v1", # Default LM Studio URL
+    "lm_studio_model": "gemma-3-12b-it", # Default model name based on available models
+    "hf_model_name": "Qwen/Qwen2.5-VL-7B-Instruct"
+}
+
+# Global variables for model/client (initialized later)
+hf_model = None
+hf_processor = None
+openai_client = None
+
+# --- Model Initialization Function ---
+def initialize_model():
+    """Loads the appropriate model based on MODEL_CONFIG."""
+    global hf_model, hf_processor, openai_client, model, processor # Added model, processor for backward compatibility if needed initially
+    source = MODEL_CONFIG["source"]
+    
+    # Clear previous model/client first
+    hf_model = None
+    hf_processor = None
+    openai_client = None
+    # Keep legacy `model` and `processor` vars potentially pointing to last HF load? Or clear them too?
+    # Let's clear them to avoid confusion, generate_response should be the main interface.
+    model = None
+    processor = None
+
+    if torch.cuda.is_available():
+        print("Clearing CUDA cache...")
+        torch.cuda.empty_cache() # Clear GPU memory if applicable
+
+    if source == "HuggingFace":
+        hf_model_name = MODEL_CONFIG['hf_model_name']
+        print(f"Loading HuggingFace model and processor: {hf_model_name}...")
+        try:
+            # Use the global vars
+            hf_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                hf_model_name,
+                torch_dtype="auto",
+                device_map="auto"
+            )
+            hf_processor = AutoProcessor.from_pretrained(hf_model_name)
+            # Assign to legacy vars for any code not yet refactored (should be removed later)
+            model = hf_model
+            processor = hf_processor
+            print("HuggingFace model and processor loaded successfully!")
+        except Exception as e:
+            print(f"Error loading HuggingFace model/processor: {e}")
+            print(traceback.format_exc())
+            # Keep hf_model and hf_processor as None
+            
+    elif source == "LMStudio":
+        lm_studio_url = MODEL_CONFIG['lm_studio_url']
+        print(f"Initializing OpenAI client for LM Studio at: {lm_studio_url}")
+        try:
+            openai_client = openai.OpenAI(
+                base_url=lm_studio_url,
+                api_key="lm-studio" # Required by openai lib, but LM Studio doesn't use it
+            )
+            # Optional: Test connection by listing models
+            models_response = openai_client.models.list()
+            available_models = [m.id for m in models_response.data]
+            print(f"OpenAI client initialized for LM Studio. Available models: {available_models}")
+            # You might want to check if MODEL_CONFIG['lm_studio_model'] is in the list
+            if MODEL_CONFIG['lm_studio_model'] not in available_models and available_models:
+                 print(f"Warning: Configured LM Studio model '{MODEL_CONFIG['lm_studio_model']}' not found in available models: {available_models}. Using first available model '{available_models[0]}' as fallback.")
+                 MODEL_CONFIG['lm_studio_model'] = available_models[0] # Fallback to first model
+            elif not available_models:
+                 print("Warning: No models reported by LM Studio API.")
+
+        except Exception as e:
+            print(f"Error initializing or connecting OpenAI client: {e}")
+            print(traceback.format_exc())
+            openai_client = None # Ensure it's None if init fails
+            
+    else:
+        print(f"Error: Unknown model source configured: {source}")
+
+# --- End Model Initialization Function ---
+
+# --- Response Generation Abstraction ---
+def generate_response(messages, max_tokens=1024):
+    """Generates a response using the currently configured model source."""
+    source = MODEL_CONFIG["source"]
+    print(f"Generating response using source: {source}") # Debug print
+
+    if source == "HuggingFace":
+        if not hf_model or not hf_processor:
+            print("Error: HuggingFace model/processor not loaded.")
+            return "Error: HuggingFace model not loaded. Please check configuration and logs."
+        
+        try:
+            # --- HuggingFace Logic ---
+            # Note: This assumes 'messages' is in the Qwen format
+            # We need to handle potential image/video data within messages
+            
+            # Re-apply chat template to the *whole* history for context
+            # The processor needs the image data separately if provided
+            # process_vision_info helps extract image data correctly for the processor
+            image_inputs, video_inputs = process_vision_info(messages) # Use the utility
+
+            # Apply chat template *after* extracting vision info
+            templated_text = hf_processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+
+            inputs = hf_processor(
+                text=[templated_text],
+                images=image_inputs, # Pass processed image inputs
+                # videos=video_inputs, # Qwen processor might not handle video this way
+                padding=True,
+                return_tensors="pt",
+            )
+            inputs = inputs.to(hf_model.device)
+
+            input_token_count = len(inputs.input_ids[0]) if inputs.input_ids is not None else 0
+            print(f"DEBUG HF Gen: Input tokens: {input_token_count}")
+            
+            with torch.no_grad():
+                # Use max_new_tokens for HF
+                generated_ids = hf_model.generate(
+                    **inputs,
+                    max_new_tokens=max_tokens,
+                    do_sample=False,
+                    # Consider adding other generation params like temperature, repetition_penalty if needed
+                    # temperature=0.7,
+                    # repetition_penalty=1.2
+                )
+                
+                # Handle cases where input_ids might be None or empty
+                if inputs.input_ids is None or inputs.input_ids.shape[1] == 0:
+                     generated_ids_trimmed = generated_ids
+                else:
+                     generated_ids_trimmed = [
+                         out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+                     ]
+
+                response_text = hf_processor.batch_decode(
+                    generated_ids_trimmed,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False
+                )
+            
+            output_token_count = len(generated_ids[0]) - input_token_count if input_token_count > 0 else len(generated_ids[0])
+            print(f"DEBUG HF Gen: Output tokens: {output_token_count}")
+            return response_text[0] if response_text else ""
+            # --- End HF Logic ---
+            
+        except Exception as e:
+            print(f"Error during HuggingFace generation: {e}")
+            print(traceback.format_exc())
+            return f"Error during HuggingFace generation: {e}"
+
+    elif source == "LMStudio":
+        if not openai_client:
+            print("Error: LM Studio client not initialized.")
+            return "Error: LM Studio client not initialized. Please check configuration and logs."
+        
+        try:
+            # --- LM Studio Logic ---
+            # Convert HF message format to OpenAI format
+            # Crucially, handle multimodal data (error out for now)
+            openai_formatted_messages = []
+            has_multimodal = False
+            for msg in messages:
+                role = msg.get("role")
+                content = msg.get("content")
+                
+                if isinstance(content, list): # Multimodal format
+                    text_content = ""
+                    for item in content:
+                        if item.get("type") == "text":
+                            # Append text parts, ensure space separation if needed
+                            text_content += item.get("text", "") + " "
+                        elif item.get("type") in ["image", "video"]:
+                            has_multimodal = True
+                            print(f"Warning: Image/Video content found in message for role '{role}'. LM Studio does not support this directly.")
+                    
+                    # If multimodal content was found, we cannot proceed with LM Studio directly
+                    if has_multimodal:
+                         # Option 1: Error out
+                         print("Error: Multimodal input detected for LM Studio.")
+                         return "Error: LM Studio model selected, but image/video input is not supported in this configuration."
+                         # Option 2: Try to proceed with text only (might lose context)
+                         # openai_formatted_messages.append({'role': role, 'content': text_content.strip()})
+                         # Option 3: Implement description fallback (complex)
+                    else:
+                         # If only text items were in the list
+                         openai_formatted_messages.append({'role': role, 'content': text_content.strip()})
+
+                elif isinstance(content, str): # Simple text format
+                    openai_formatted_messages.append({'role': role, 'content': content})
+                else:
+                    print(f"Warning: Skipping message with unexpected content format for role '{role}': {type(content)}")
+
+            if not openai_formatted_messages:
+                 print("Error: No valid text messages formatted for LM Studio.")
+                 return "Error: No valid text messages found to send to LM Studio."
+
+            print(f"DEBUG LM Studio Gen: Sending {len(openai_formatted_messages)} messages to model '{MODEL_CONFIG['lm_studio_model']}'. First message: {openai_formatted_messages[0]}")
+            response = openai_client.chat.completions.create(
+                model=MODEL_CONFIG["lm_studio_model"],
+                messages=openai_formatted_messages,
+                temperature=0.7,
+                max_tokens=max_tokens, # OpenAI uses max_tokens for the completion length
+            )
+            # Check if usage information is available
+            usage_info = response.usage if hasattr(response, 'usage') else 'Not available'
+            print(f"DEBUG LM Studio Gen: Received response. Usage: {usage_info}")
+            
+            # Check if choices are available and non-empty
+            if response.choices and len(response.choices) > 0:
+                 return response.choices[0].message.content
+            else:
+                 print("Error: LM Studio response did not contain expected choices.")
+                 return "Error: Received an empty or invalid response from LM Studio."
+            # --- End LM Studio Logic ---
+            
+        except Exception as e:
+            print(f"Error calling LM Studio API: {e}")
+            print(traceback.format_exc())
+            return f"Error communicating with LM Studio: {e}"
+            
+    else:
+        print(f"Error: Invalid model source configured: {source}")
+        return "Error: Invalid model source configured."
+
+# --- End Response Generation Abstraction ---
+
+
 # Initialize resources for RAG
 if LANGCHAIN_AVAILABLE:
     # Use the updated HuggingFaceEmbeddings class
@@ -85,15 +317,15 @@ else:
         SKLEARN_AVAILABLE = False
 
 
-# Load Qwen2.5-VL model and processor
-print("Loading model and processor...")
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    "Qwen/Qwen2.5-VL-7B-Instruct",
-    torch_dtype="auto",
-    device_map="auto"
-)
-processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
-print("Model and processor loaded successfully!")
+# Load Qwen2.5-VL model and processor (COMMENTED OUT - Handled by initialize_model)
+# print("Loading model and processor...")
+# model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+#     "Qwen/Qwen2.5-VL-7B-Instruct",
+#     torch_dtype="auto",
+#     device_map="auto"
+# )
+# processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
+# print("Model and processor loaded successfully!")
 
 # Default PDF folder
 PDF_FOLDER = "RAG_pdf"
@@ -107,6 +339,12 @@ FRAMES_DIR = Path("saved_frames")
 FRAMES_DIR.mkdir(exist_ok=True)
 CACHE_DIR = Path("frame_cache")
 CACHE_DIR.mkdir(exist_ok=True)
+
+# --- Initial Model Load ---
+# Load the default model when the script starts
+initialize_model()
+# --- End Initial Model Load ---
+
 
 # --- RAG Functions (from Concise_RAG_v5.py) ---
 
@@ -327,46 +565,24 @@ Answer:"""
             }
         ]
 
-        # Process with the model
-        # Prepare inference input
-        text = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        # Pass None instead of empty lists for images/videos
-        inputs = processor(
-            text=[text],
-            images=None,
-            videos=None,
-            padding=True,
-            return_tensors="pt",
-        )
-        inputs = inputs.to(model.device)
+        # Process with the selected model using the abstraction layer
+        print(f"DEBUG - Text RAG: Sending messages to generate_response. First message content: {messages[0]['content']}")
+        answer = generate_response(messages, max_tokens=8192) # Use the abstraction
+        print(f"DEBUG - Text RAG: Received answer (first 100 chars): {answer[:100]}")
 
-        # Generate output with increased token limit
-        with torch.no_grad():
-            generated_ids = model.generate(
-                **inputs, 
-                max_new_tokens=8192,  # Significantly increased token limit
-                do_sample=False,      # Deterministic generation
-                temperature=0.7,      # Lower temperature for more focused output
-                repetition_penalty=1.2  # Discourage repetition
-            )
-            generated_ids_trimmed = [
-                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-            ]
-            output_text = processor.batch_decode(
-                generated_ids_trimmed,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=False
-            )
-        
-        # Ensure the output is complete
-        answer = output_text[0]
-        
-        # Log token usage for debugging
-        input_token_count = len(inputs.input_ids[0])
-        output_token_count = len(generated_ids[0]) - input_token_count
-        print(f"DEBUG - Text RAG: Input tokens: {input_token_count}, Output tokens: {output_token_count}, Max allowed: 8192")
+        # Check if the response indicates an error from generate_response
+        if answer.startswith("Error:"):
+             print(f"Error received from generate_response: {answer}")
+             # Optionally, return a more user-friendly error or just the error itself
+             # For now, return the error and empty sources
+             return answer, sources
+
+        # Log token usage for debugging (Note: Token counts are now internal to generate_response)
+        # We might need to modify generate_response to return token counts if needed here.
+        # For now, we'll skip the detailed token logging here.
+        # input_token_count = ...
+        # output_token_count = ...
+        # print(f"DEBUG - Text RAG: Input tokens: {input_token_count}, Output tokens: {output_token_count}, Max allowed: 8192")
         
         # Enhanced check for truncated responses
         truncation_indicators = [
@@ -413,31 +629,17 @@ def process_image_with_rag(image, query, top_k=3):
             }
         ]
 
-        # Process the description request
-        text = processor.apply_chat_template(
-            description_messages, tokenize=False, add_generation_prompt=True
-        )
-        image_inputs, _ = process_vision_info(description_messages) # Get image inputs
-        inputs = processor(
-            text=[text],
-            images=image_inputs, # Pass image inputs
-            videos=None,        # Pass None for videos
-            padding=True,
-            return_tensors="pt",
-        )
-        inputs = inputs.to(model.device)
+        # Process the description request using the abstraction layer
+        print("DEBUG - Image RAG: Generating image description...")
+        # Use generate_response for the description. max_tokens set to 1024 as before.
+        image_description = generate_response(description_messages, max_tokens=1024)
+        print(f"DEBUG - Image RAG: Received description (first 100 chars): {image_description[:100]}")
 
-        # Generate description
-        with torch.no_grad():
-            generated_ids = model.generate(**inputs, max_new_tokens=1024) # Increased max_new_tokens for description
-            generated_ids_trimmed = [
-                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-            ]
-            image_description = processor.batch_decode(
-                generated_ids_trimmed,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=False
-            )[0]
+        # Check for errors (e.g., LM Studio selected, which doesn't support image input)
+        if image_description.startswith("Error:"):
+             print(f"Error during image description generation: {image_description}")
+             # Return the error, indicating failure at the description stage
+             return image_description, "", [] # Return error as description, empty answer, empty sources
 
         # Step 2: Search knowledge base using image description
         search_query = f"{image_description} {query}"
@@ -472,41 +674,25 @@ Please provide a concise but complete answer based on both the image content and
             }
         ]
 
-        # Process the final request
-        text = processor.apply_chat_template(
-            rag_messages, tokenize=False, add_generation_prompt=True
-        )
-        image_inputs, _ = process_vision_info(rag_messages) # Get image inputs
-        inputs = processor(
-                text=[text],
-                images=image_inputs, # Pass image inputs
-                videos=None,        # Pass None for videos
-                padding=True,
-                return_tensors="pt",
-            )
-        inputs = inputs.to(model.device)
+        # Process the final RAG request using the abstraction layer
+        print("DEBUG - Image RAG: Generating final RAG response...")
+        # Use generate_response for the final answer. max_tokens set to 8192 as before.
+        final_response = generate_response(rag_messages, max_tokens=8192)
+        print(f"DEBUG - Image RAG: Received final response (first 100 chars): {final_response[:100]}")
 
-        # Generate final response
-        with torch.no_grad():
-            generated_ids = model.generate(**inputs, max_new_tokens=8192) # Significantly increased max_new_tokens for RAG answer
-            
-            # Log token usage for debugging
-            input_token_count = len(inputs.input_ids[0])
-            output_token_count = len(generated_ids[0]) - input_token_count
-            print(f"DEBUG - Image RAG: Input tokens: {input_token_count}, Output tokens: {output_token_count}, Max allowed: 8192")
-            generated_ids_trimmed = [
-                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-            ]
-            final_response = processor.batch_decode(
-                generated_ids_trimmed,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=False
-            )[0]
- 
-            # Check for truncation in image RAG
-            if output_token_count >= 8000: # Check if very close to the 8192 limit
-                 print(f"DEBUG - Image RAG: Truncation detected, output tokens: {output_token_count}")
-                 final_response += "\n\n[Note: The response may have been truncated due to token limits. Consider asking a more specific question.]"
+        # Check for errors during final response generation
+        if final_response.startswith("Error:"):
+             print(f"Error during final RAG response generation: {final_response}")
+             # Return the description, the error message as the answer, and sources
+             return image_description, final_response, sources
+
+        # Token checking logic is now internal to generate_response,
+        # but we can add a basic length check here if desired.
+        # Example basic check (less accurate than token counting):
+        # if len(final_response) > 7500: # Arbitrary length check as proxy for token limit
+        #      print(f"DEBUG - Image RAG: Response length ({len(final_response)}) is high, potential truncation.")
+        #      # Consider adding a note, although generate_response might handle this better if modified
+        #      # final_response += "\n\n[Note: The response might be long. Consider asking a more specific question.]"
 
         # Return components separately for the new UI
         # Return: image_description, final_response, source_info
@@ -553,9 +739,20 @@ def process_video_with_rag(video_path, query, top_k=3):
         if not frames:
             return "Could not extract frames from video", "", [] # Added empty string for answer and empty sources list
 
-        # Process each frame with description
+        # Process each frame with description using the abstraction layer
         frame_descriptions = []
+        
+        # Check if the selected model supports vision before processing frames
+        if MODEL_CONFIG["source"] == "LMStudio":
+             # If LM Studio is selected, we cannot process images directly
+             error_msg = "Error: LM Studio model selected. Image/Video analysis is not supported in this configuration."
+             print(error_msg)
+             # Return extracted frames (if any) and the error message
+             # We still return frames so the gallery can be populated if extraction worked
+             frame_paths_only = [(second, path) for second, path in frames] # Return just paths
+             return [f"Frame at {second}s: Analysis skipped ({error_msg})" for second, path in frames], error_msg, [] # Return analysis placeholder, error, empty sources
 
+        # Proceed with frame analysis only if HuggingFace model is selected
         for time_pos, frame_path in frames:
             # Create description message
             description_messages = [
@@ -571,38 +768,36 @@ def process_video_with_rag(video_path, query, top_k=3):
                 }
             ]
 
-            # Process the description request
-            text = processor.apply_chat_template(
-                description_messages, tokenize=False, add_generation_prompt=True
-            )
-            image_inputs, _ = process_vision_info(description_messages) # Get image inputs
-            inputs = processor(
-                text=[text],
-                images=image_inputs, # Pass image inputs
-                videos=None,        # Pass None for videos
-                padding=True,
-                return_tensors="pt",
-            )
-            inputs = inputs.to(model.device)
+            # Use generate_response for frame description
+            print(f"DEBUG - Video RAG: Generating description for frame at {time_pos}s...")
+            description = generate_response(description_messages, max_tokens=1024)
+            print(f"DEBUG - Video RAG: Received description (first 100 chars): {description[:100]}")
 
-            # Generate description
-            with torch.no_grad(): # Corrected indentation
-                generated_ids = model.generate(**inputs, max_new_tokens=1024) # Increased max_new_tokens for frame description
-                generated_ids_trimmed = [
-                    out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-                ]
-                description = processor.batch_decode(
-                    generated_ids_trimmed,
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=False
-                )[0]
+            # Check for errors during description generation
+            if description.startswith("Error:"):
+                 print(f"Error during frame description generation: {description}")
+                 # Append error to descriptions and continue (or break if preferred)
+                 frame_descriptions.append(f"**Frame at {int(time_pos // 60)}min {int(time_pos % 60)}sec**: ERROR - {description}")
+                 # Decide whether to stop or continue. Let's continue for now.
+                 continue # Skip to next frame on error
 
             # Add to frame descriptions
             time_stamp = f"{int(time_pos // 60)}min {int(time_pos % 60)}sec"
             frame_descriptions.append(f"**Frame at {time_stamp}**: {description}")
 
+        # If no descriptions were generated (e.g., all frames failed or LM Studio was selected)
+        if not frame_descriptions:
+             return "No frame descriptions could be generated.", "", [] # Return error, empty answer, empty sources
+
         # Combine descriptions for search query
-        combined_description = " ".join([desc.split("**")[2] for desc in frame_descriptions if "**" in desc and len(desc.split("**")) > 2])
+        # Ensure we only process descriptions that were successfully generated
+        valid_descriptions = [desc.split("**")[2] for desc in frame_descriptions if "**" in desc and len(desc.split("**")) > 2 and not desc.startswith("**Frame at") and "ERROR" not in desc]
+        combined_description = " ".join(valid_descriptions)
+
+        # If no valid descriptions, we can't do RAG
+        if not combined_description:
+             return "\n\n".join(frame_descriptions), "Error: No valid frame descriptions generated for RAG search.", [] # Return analysis, error, empty sources
+
 
         # Get relevant context from knowledge base
         search_query = f"{combined_description} {query}"
@@ -626,10 +821,13 @@ My question: {query}
 Please provide a concise but complete answer based on both the video content and the technical documentation. Include specific recommendations and steps to address any issues identified. Be thorough but avoid unnecessary verbosity. Please ensure your answer is complete and includes all relevant details."""
 
         # Use the most representative frame for the final query
+        # We still need an image input for the Qwen-VL model, even if the prompt includes text descriptions
         if frames and len(frames) > 0:
-            middle_frame = frames[len(frames)//2][1]
+            middle_frame = frames[len(frames)//2][1] # Use the middle frame as representative
 
-            # Process the RAG-enhanced query
+            # Process the RAG-enhanced query using generate_response
+            print("DEBUG - Video RAG: Generating final RAG response...")
+            # Construct messages including the representative image and the RAG prompt
             rag_messages = [
                 {
                     "role": "user",
@@ -642,48 +840,27 @@ Please provide a concise but complete answer based on both the video content and
                     ],
                 }
             ]
+            final_response = generate_response(rag_messages, max_tokens=8192)
+            print(f"DEBUG - Video RAG: Received final response (first 100 chars): {final_response[:100]}")
 
-            # Process the final request
-            text = processor.apply_chat_template(
-                rag_messages, tokenize=False, add_generation_prompt=True
-            )
-            image_inputs, _ = process_vision_info(rag_messages) # Get image inputs
-            inputs = processor(
-                text=[text],
-                images=image_inputs, # Pass image inputs
-                videos=None,        # Pass None for videos
-                padding=True,
-                return_tensors="pt",
-            )
-            inputs = inputs.to(model.device)
+            # Check for errors during final response generation
+            if final_response.startswith("Error:"):
+                 print(f"Error during final RAG response generation: {final_response}")
+                 # Return the analysis, the error message as the answer, and sources
+                 return "\n\n".join(frame_descriptions), final_response, sources
 
-            # Generate final response
-            with torch.no_grad(): # Corrected indentation
-                generated_ids = model.generate(**inputs, max_new_tokens=8192) # Significantly increased max_new_tokens for RAG answer
-                
-                # Log token usage for debugging
-                input_token_count = len(inputs.input_ids[0])
-                output_token_count = len(generated_ids[0]) - input_token_count
-                print(f"DEBUG - Video RAG: Input tokens: {input_token_count}, Output tokens: {output_token_count}, Max allowed: 8192")
-                generated_ids_trimmed = [
-                    out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-                ]
-                final_response = processor.batch_decode(
-                    generated_ids_trimmed,
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=False
-                )[0]
- 
-                # Check for truncation in video RAG
-                if output_token_count >= 8000: # Check if very close to the 8192 limit
-                    print(f"DEBUG - Video RAG: Truncation detected, output tokens: {output_token_count}")
-                    final_response += "\n\n[Note: The response may have been truncated due to token limits. Consider asking a more specific question.]"
+            # Token checking logic is now internal to generate_response.
+            # Add a basic length check here if desired.
+            # if len(final_response) > 7500: # Arbitrary length check as proxy for token limit
+            #      print(f"DEBUG - Video RAG: Response length ({len(final_response)}) is high, potential truncation.")
+            #      # Consider adding a note
 
             # Return components separately for the new UI
             # Return: frame_descriptions (list), final_response, source_info
-            return frame_descriptions, final_response, sources # Return analysis, answer, and sources
+            return "\n\n".join(frame_descriptions), final_response, sources # Return analysis, answer, and sources
         else: # Corrected indentation
-            return "Error: No frames available for analysis", "", [] # Added empty string for answer and empty sources list
+            # This case should ideally be caught earlier by the 'if not frames:' check
+            return "Error: No frames available for analysis after extraction.", "", [] # Added empty string for answer and empty sources list
 
     except Exception as e:
         error_trace = traceback.format_exc()
@@ -841,33 +1018,17 @@ def basic_image_analysis(image, object_str):
             }
         ]
         
-        # Prepare inference input
-        text = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
-        inputs = inputs.to(model.device)
+        # Use the abstraction layer to generate the response
+        print(f"DEBUG - Basic Image Analysis: Sending messages to generate_response.")
+        response_text = generate_response(messages, max_tokens=1024)
+        print(f"DEBUG - Basic Image Analysis: Received response (first 100 chars): {response_text[:100]}")
 
-        # Generate output
-        print("Generating response...")
-        with torch.no_grad():
-            generated_ids = model.generate(**inputs, max_new_tokens=1024) # Limit tokens for basic analysis
-            generated_ids_trimmed = [
-                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-            ]
-            response_text = processor.batch_decode(
-                generated_ids_trimmed, 
-                skip_special_tokens=True, 
-                clean_up_tokenization_spaces=False
-            )[0]
-        
+        # Check for errors from generate_response (e.g., LM Studio + image input)
+        if response_text.startswith("Error:"):
+             print(f"Error received from generate_response in basic_image_analysis: {response_text}")
+             # Return the error message to be displayed in the UI
+             return response_text
+             
         return response_text
     
     except Exception as e:
@@ -1237,6 +1398,12 @@ def basic_video_analysis(video_path, object_str, frame_interval, max_frames, pro
     """Process video and analyze frames for basic object detection"""
     if video_path is None:
         return "Please upload a video.", "No video processed"
+
+    # Add check for LM Studio source before proceeding
+    if MODEL_CONFIG["source"] == "LMStudio":
+        error_msg = "Error: LM Studio model selected. Basic video analysis (requires image processing) is not supported."
+        print(error_msg)
+        return error_msg, "Analysis Skipped" # Return error for both output fields
     
     try:
         start_time = time.time()  # Initialize start_time at the beginning
@@ -1763,6 +1930,24 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
     with gr.Row():
         status = gr.Textbox(value="Ready", label="Status", elem_classes="status-ready", interactive=False)
 
+    # --- Model Selection ---
+    with gr.Row():
+         model_choice = gr.Radio(
+             ["HuggingFace", "LMStudio"],
+             value=MODEL_CONFIG["source"],
+             label="Select Model Source",
+             info="Choose between the built-in Qwen model or a model served by LM Studio."
+         )
+         # Add dropdown for LM Studio models, initially hidden
+         lm_studio_model_dropdown = gr.Dropdown(
+             label="Select Loaded LM Studio Model",
+             info="Select a model currently loaded in your LM Studio.",
+             choices=[], # Will be populated dynamically
+             visible=False, # Hidden by default
+             interactive=True
+         )
+         # TODO: Optionally add inputs for LM Studio URL here if needed
+
     with gr.Tabs():
         # Tab 1: Concise RAG (Based on Concise_RAG_v5.py)
         with gr.TabItem("Concise RAG"):
@@ -1908,6 +2093,114 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=css) as demo:
                             label="Session Info", 
                             elem_classes="result-box"
                         )
+
+    # --- Model Selection Handlers ---
+
+    # Function to fetch available models from LM Studio
+    def get_lm_studio_models():
+        """Attempts to connect to LM Studio and fetch loaded model IDs."""
+        if not openai_client:
+            print("Cannot fetch LM Studio models: Client not initialized.")
+            return [] # Return empty list if client isn't ready
+        try:
+            models_response = openai_client.models.list()
+            available_models = [m.id for m in models_response.data]
+            print(f"Fetched LM Studio models: {available_models}")
+            return available_models
+        except Exception as e:
+            print(f"Error fetching models from LM Studio: {e}")
+            # Return empty list on error, Gradio dropdown will show nothing.
+            return []
+
+    # Function triggered by the Radio button change
+    def update_model_source_selection(choice):
+        """Handles model source switching, initializes, and updates UI visibility/choices."""
+        global hf_model, hf_processor, openai_client # Allow modification of globals
+        print(f"Switching model source to: {choice}")
+        MODEL_CONFIG["source"] = choice
+        
+        # Reset models/clients before initializing the new one
+        hf_model = None
+        hf_processor = None
+        openai_client = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache() # Clear GPU memory if applicable
+
+        # Call the initialization function (which sets up hf_model/openai_client)
+        # This needs to happen *before* trying to fetch models if LMStudio is chosen
+        initialize_model()
+        
+        status_update = f"Model source set to {choice}."
+
+        # Default UI updates (enable vision inputs, hide LM Studio dropdown)
+        vision_interactive = True
+        lm_dropdown_visible = False
+        lm_dropdown_choices = []
+        lm_dropdown_value = None # Reset dropdown value
+
+        # Specific updates if LM Studio is chosen
+        if choice == "LMStudio":
+             print("LM Studio selected. Disabling vision inputs, showing LM dropdown.")
+             vision_interactive = False # Disable vision inputs
+             lm_dropdown_visible = True # Show LM Studio dropdown
+             
+             # Ensure client is initialized before fetching models
+             if not openai_client:
+                  status_update += " Error: Failed to initialize LM Studio client. Check URL and server status."
+                  print("Error: openai_client is None after initialization attempt.")
+             else:
+                  # Fetch models and update dropdown choices
+                  lm_dropdown_choices = get_lm_studio_models()
+                  if not lm_dropdown_choices:
+                       status_update += " Warning: Could not fetch models from LM Studio API. Is a model loaded?"
+                       print("Warning: get_lm_studio_models() returned empty list.")
+                  else:
+                       status_update += f" Found {len(lm_dropdown_choices)} model(s) in LM Studio."
+                       # Set default selection if possible
+                       current_lm_model_config = MODEL_CONFIG.get('lm_studio_model', None)
+                       if current_lm_model_config in lm_dropdown_choices:
+                            lm_dropdown_value = current_lm_model_config
+                       elif lm_dropdown_choices: # Fallback to first available if config value not found
+                            lm_dropdown_value = lm_dropdown_choices[0]
+                            MODEL_CONFIG['lm_studio_model'] = lm_dropdown_value # Update config with fallback
+                            print(f"LM Studio model reset to first available: {lm_dropdown_value}")
+                            status_update += f" Defaulting to '{lm_dropdown_value}'."
+                       # If lm_dropdown_value is still None here, it means no models were found
+
+        # Return updates for all relevant UI components
+        return (
+            status_update,
+            gr.update(interactive=vision_interactive, value=None), # rag_image_input
+            gr.update(interactive=vision_interactive, value=None), # rag_video_input
+            gr.update(visible=lm_dropdown_visible, choices=lm_dropdown_choices, value=lm_dropdown_value) # lm_studio_model_dropdown
+        )
+
+    # Function triggered by the LM Studio Dropdown change
+    def update_lm_studio_model_config(selected_model):
+        """Updates the internal config when an LM Studio model is selected."""
+        if selected_model:
+             print(f"LM Studio model selected via dropdown: {selected_model}")
+             MODEL_CONFIG['lm_studio_model'] = selected_model
+             return f"LM Studio model set to: {selected_model}"
+        # Handle case where selection might be cleared or invalid
+        print("LM Studio dropdown selection cleared or invalid.")
+        # Optionally reset config or leave as is
+        # MODEL_CONFIG['lm_studio_model'] = None
+        return "No LM Studio model selected." # Update status
+
+    # Connect the Radio button handler
+    model_choice.change(
+         fn=update_model_source_selection,
+         inputs=model_choice,
+         outputs=[status, rag_image_input, rag_video_input, lm_studio_model_dropdown]
+    )
+
+    # Connect the LM Studio Dropdown handler
+    lm_studio_model_dropdown.change(
+         fn=update_lm_studio_model_config,
+         inputs=lm_studio_model_dropdown,
+         outputs=[status] # Update status bar on selection
+    )
 
     # --- Event Handlers ---
 
