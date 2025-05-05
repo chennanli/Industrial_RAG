@@ -37,6 +37,10 @@ temp_backup/*
 archieved/
 __pycache__/
 
+# Local reference files - not for GitHub
+REMOVE_FOLDERS.md
+modular_rag/docs/CLEANUP_GUIDE.md
+
 # Keep directory structure with .gitkeep files for important directories
 !RAG_pdf/.gitkeep
 !frame_cache/.gitkeep

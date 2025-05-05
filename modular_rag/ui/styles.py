@@ -115,6 +115,19 @@ footer {
     transform: translateY(-2px);
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
+.cancel-btn {
+    background-color: #ef4444 !important;
+    color: white !important;
+    font-weight: bold !important;
+    padding: 10px 20px !important;
+    border-radius: 8px !important;
+    transition: all 0.3s ease !important;
+}
+.cancel-btn:hover {
+    background-color: #dc2626 !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
 .result-box h2 { /* Target headings within the markdown output */
     margin-top: 16px;
     margin-bottom: 8px;

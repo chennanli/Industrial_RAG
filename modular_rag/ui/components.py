@@ -173,9 +173,19 @@ def create_pdf_processing_panel():
     return pdf_panel, init_button, init_output
 
 def create_query_panel():
-    """Create query input panel"""
+    """Create query input panel with mode selection and cancel button"""
     with gr.Group(elem_classes="panel") as query_panel:
         gr.Markdown("### Enter Your Question", elem_classes="header-text")
+        
+        # Add mode selection
+        with gr.Row():
+            mode_selection = gr.Radio(
+                choices=["Use Knowledge Base (RAG)", "Direct Analysis (No RAG)"],
+                label="Analysis Mode",
+                value="Use Knowledge Base (RAG)",
+                interactive=True
+            )
+        
         query_input = gr.Textbox(
             label="Question",
             placeholder="e.g., How to run the clarifier in a wastewater treatment plant?",
@@ -185,9 +195,11 @@ def create_query_panel():
         image_input = gr.Image(label="Upload Image (Optional)", type="filepath")
         video_input = gr.Video(label="Upload Video (Optional)")
         
-        submit_button = gr.Button("Submit Query", variant="primary", elem_classes="submit-btn")
+        with gr.Row():
+            submit_button = gr.Button("Submit Query", variant="primary", elem_classes="submit-btn")
+            cancel_button = gr.Button("Cancel Processing", variant="stop", elem_classes="cancel-btn")
     
-    return query_panel, query_input, image_input, video_input, submit_button
+    return query_panel, query_input, image_input, video_input, mode_selection, submit_button, cancel_button
 
 def create_output_panels():
     """Create output display panels"""
@@ -201,7 +213,7 @@ def create_output_panels():
     
     # RAG Results Output
     with gr.Group(elem_classes="panel") as results_panel:
-        gr.Markdown("### Answer from Knowledge Base", elem_classes="header-text")
+        results_title = gr.Markdown("### Answer from Knowledge Base", elem_classes="header-text")
         results_output = gr.Markdown(elem_classes="result-box")
     
     # Sources Display
@@ -209,4 +221,4 @@ def create_output_panels():
         gr.Markdown("### Sources", elem_classes="header-text")
         sources_output = gr.Markdown(elem_classes="source-box")
     
-    return status, analysis_panel, analysis_output, results_panel, results_output, sources_panel, sources_output
+    return status, analysis_panel, analysis_output, results_panel, results_title, results_output, sources_panel, sources_output
