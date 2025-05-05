@@ -1,57 +1,66 @@
-# Python virtual environment
+# Python environment and cache
 qwen25_env/
-venv/
-env/
-ENV/
-
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Distribution / packaging
-dist/
+*.so
+.Python
+.env
+.venv
+env/
+venv/
+ENV/
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
+*.egg
 
-# Temporary files
-*.swp
-*.swo
+# Data directories - ignore contents but keep the directories
+RAG_pdf/*
+frame_cache/*
+saved_frames/*
+archieved/*
+offload_folder/*
+temp_backup/*
+
+# Keep directory structure with .gitkeep files
+!RAG_pdf/.gitkeep
+!frame_cache/.gitkeep
+!saved_frames/.gitkeep
+!archieved/.gitkeep
+!offload_folder/.gitkeep
+!temp_backup/.gitkeep
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# OS specific
 .DS_Store
-*.tmp
-*.backup
-*_copy.py
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# Logs and databases
+# Logs
 *.log
-*.sqlite
-
-# User-specific IDE settings
-.idea/
-.vscode/
-*.sublime-*
-*.code-workspace
-
-# Project specific directories (keep structure but ignore content)
-frame_cache/
-offload_folder/
-saved_frames/
-archieved/
-videos/
-
-# Data files that shouldn't be in git
-*.dat
-*.pt
-*.pth
-*.bin
-*.safetensors
-
-# RAG files
-RAG_pdf/
-
-# Temporary and cache files
-.git/objects/pack/tmp_pack*
-
-# Keep important files
-!README.md
-!requirements.txt
+logs/

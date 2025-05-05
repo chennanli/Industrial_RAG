@@ -28,39 +28,7 @@ docs/
 └── LM_STUDIO_FIX_GUIDE.md       # LM Studio integration guide
 ```
 
-## Files to Remove
 
-The following files are no longer needed and can be safely removed:
-
-```
-combined_tabbed_backup.py
-combined_tabbed_backup_copy.py
-combined_tabbed_tail.txt
-debug_txt_*.txt
-debuglog.md
-enable_lm_studio_vision.py
-fix_image_upload.py
-fix_lm_studio.py
-hybrid_fix.py
-lm_studio_dropdown_integration.py
-lm_studio_dropdown_patch.txt
-lm_studio_dropdown_revised_patch.txt
-RAG_modify.py
-simple_fix.py
-test_lm_studio_dropdown.py
-test_lm_studio_dropdown_fixed.py
-test_lm_studio_vision.py
-```
-
-## Folders to Remove
-
-The following folders are not needed for the current system:
-
-```
-archieved/
-temp_backup/
-__pycache__/
-```
 
 ## Project Organization for GitHub
 

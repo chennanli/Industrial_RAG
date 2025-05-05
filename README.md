@@ -1,78 +1,132 @@
-# Multimodal Analysis and RAG System (Tabbed Interface)
+# Multimodal RAG System with LLM Integration
 
-This project provides a unified application for multimodal analysis and Retrieval-Augmented Generation (RAG) using the Qwen2.5-VL model. It combines text, image, and video analysis with knowledge base integration, presented through a user-friendly tabbed interface.
+![multimodal-rag-banner](https://raw.githubusercontent.com/wiki/vscode-icons/vscode-icons/images/github-banner.png)
 
-## Overview
+A high-performance, multimodal Retrieval-Augmented Generation (RAG) system that supports text, image, and video queries. This system features integration with both Hugging Face models and locally running LLM servers through LM Studio.
 
-The main application, `combined_tabbed.py`, integrates the functionalities of previous individual scripts into a single Gradio interface with three distinct tabs:
+## 🚀 Features
 
-1.  **Concise RAG**: Perform RAG queries using a knowledge base built from PDF documents, supporting text, image, and video inputs.
-2.  **Image Analysis Only**: Analyze single images for detailed descriptions or object identification.
-3.  **Video Analysis & Sessions**: Extract and analyze frames from videos with time frame control, and manage saved video sessions.
+- **Multimodal Processing**: Seamlessly handle text, image, and video queries
+- **Model Flexibility**: Switch between Hugging Face models and locally running LLMs in LM Studio
+- **Hardware Optimized**: Automatically uses the best available hardware (MPS for Apple Silicon, CUDA for NVIDIA GPUs)
+- **High-Performance**: Implements intelligent caching, mixed precision, and parallel processing
+- **Beautiful UI**: Clean interface with high-contrast source document display
+- **Modular Architecture**: Well-organized code structure for easy maintenance and extension
 
-The system uses the Qwen2.5-VL multimodal model for visual and text processing and can optionally use LangChain with FAISS for advanced knowledge retrieval (falls back to TF-IDF if LangChain dependencies are not met).
+## 🖼️ Screenshots
 
-## Setup
+![UI Screenshot](https://example.com/screenshot.png)
 
-1.  **Clone or download the project files.**
-2.  **Activate the virtual environment:**
-    ```bash
-    source qwen25_env/bin/activate
-    ```
-    If you don't have the `qwen25_env` virtual environment, you'll need to create one and install the dependencies into it.
-3.  **Install required dependencies:**
-    Ensure your virtual environment is active, then run:
-    ```bash
-    pip3 install -r requirements.txt
-    ```
-    This will install all necessary packages, including `gradio`, `transformers`, `torch`, `opencv-python`, `qwen-vl-utils`, and the LangChain components (`langchain`, `langchain-community`, `faiss-cpu`, `sentence-transformers`) for enhanced RAG.
+## 🏗️ Architecture
 
-## Usage
+The system uses a modular architecture with clean separation of concerns:
 
-1.  **Place PDF Files (for RAG):** Add your PDF documents to the `RAG_pdf` folder within the project directory.
-2.  **Run the Application:**
-    Activate your Python environment:
-    ```bash
-    source qwen25_env/bin/activate
-    ```
-    Then run the main script:
-    ```bash
-    python combined_tabbed.py
-    ```
-3.  **Access the Interface:** Open the local URL provided in the terminal output (e.g., `http://127.0.0.1:7860`) in your web browser.
-4.  **Using the Tabs:**
-    *   **Concise RAG Tab:**
-        *   Click "Process PDF Knowledge Base" to load your documents.
-        *   Enter your question and optionally upload an image or video.
-        *   Click "Submit RAG Query" to get an answer based on the model's understanding and the knowledge base.
-    *   **Image Analysis Only Tab:**
-        *   Upload an image.
-        *   Optionally enter an object to identify.
-        *   Click "Analyze Image" to get a description or object analysis.
-    *   **Video Analysis & Sessions Tab:**
-        *   **Process New Video:** Upload a video, adjust frame extraction settings (interval, max frames), and click "Analyze Video" (or just "Process Video" if analysis is unchecked) to extract and analyze frames.
-        *   **Use Existing Frames:** Select a previously processed session from the dropdown to view its frames in the gallery. You can refresh the list or delete sessions.
+```
+LLM_Project/Qwen2.5/
+├── launch_rag.py              # Launch script for the application
+├── modular_rag/               # Main code directory
+│   ├── app.py                 # Application entry point
+│   ├── models/                # Model backends
+│   │   ├── huggingface.py     # Hugging Face model integration
+│   │   └── lm_studio.py       # LM Studio integration
+│   ├── rag_modules/           # RAG processing modules
+│   │   ├── vector_store.py    # Vector store for document indexing
+│   │   └── rag_processor.py   # Core RAG processing for all modalities
+│   ├── ui/                    # User interface
+│   │   ├── styles.py          # CSS styling
+│   │   └── components.py      # UI component definitions
+│   └── utils/                 # Utility modules
+│       ├── config.py          # Configuration settings
+│       └── helpers.py         # Helper functions
+└── docs/                      # Documentation
+```
 
-## How It Works
+## 💡 How It Works
 
--   **Knowledge Base**: PDF documents are processed into text chunks, vectorized (using LangChain/FAISS or TF-IDF fallback), and stored for efficient retrieval.
--   **Multimodal Processing**: The Qwen2.5-VL model analyzes images and video frames (extracted from videos).
--   **RAG Integration**: For RAG queries, the system combines the user's question with relevant information retrieved from the knowledge base and the analysis of any provided image or video, feeding this enhanced context to the Qwen model for a comprehensive answer.
--   **Basic Analysis**: The Image Analysis and Video Analysis tabs provide direct analysis results from the Qwen model without necessarily querying the PDF knowledge base (unless explicitly part of the prompt).
+1. **Text RAG**: Queries are matched against indexed PDF documents using FAISS vector similarity
+2. **Image RAG**: Images are analyzed with vision models, then combined with text RAG for context-aware responses
+3. **Video RAG**: Video frames are extracted, analyzed individually, and key insights are combined with textual context
 
-## File Structure
+### Key Components:
 
--   `combined_tabbed.py`: The main application file containing all integrated code and the Gradio UI.
--   `requirements.txt`: Lists all project dependencies.
--   `LICENSE`: Specifies the personal, non-commercial use license.
--   `RAG_pdf/`: Folder to place your PDF files for the knowledge base.
--   `saved_frames/`: Directory where extracted video frames are saved.
--   `archieved/`: Contains older versions of the Python scripts.
--   `frame_cache/`: Cache directory for video frame processing.
+- **Vector Store**: Uses FAISS through LangChain (with TF-IDF fallback) for efficient document retrieval
+- **Model Backend**: Supports both Hugging Face models and LM Studio's API-compatible server
+- **Video Processing**: Implements frame extraction with caching and parallel processing
+- **UI**: Built with Gradio for a clean, responsive interface
 
-## Troubleshooting
+## 🖥️ Installation & Usage
 
--   **Import Errors**: Ensure your `qwen25_env` virtual environment is active and you have run `pip3 install -r requirements.txt`.
--   **LangChain Fallback**: If you see messages about LangChain imports failing but the app still runs, it's using the TF-IDF fallback. Install the LangChain packages mentioned in `requirements.txt` for the advanced RAG.
--   **Slow Processing**: Reduce the number of frames extracted for video analysis or RAG.
--   **Port Already in Use**: Stop the previous process or modify the `demo.launch()` call in `combined_tabbed.py` to use a different port (e.g., `demo.launch(server_port=7861)`).
+### Prerequisites
+
+- Python 3.10+
+- [LM Studio](https://lmstudio.ai/) (optional, for using local LLMs)
+
+### Setup
+
+1. Clone this repository:
+   ```
+   git clone https://github.com/yourusername/multimodal-rag.git
+   cd multimodal-rag
+   ```
+
+2. Create and activate a virtual environment:
+   ```
+   python -m venv qwen25_env
+   
+   # On macOS/Linux
+   source qwen25_env/bin/activate
+   
+   # On Windows
+   qwen25_env\Scripts\activate
+   ```
+
+3. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+4. Place your PDF documents in the `RAG_pdf` folder
+
+### Running the Application
+
+```
+python launch_rag.py
+```
+
+The application will be available at [http://localhost:7860](http://localhost:7860)
+
+### Usage Instructions
+
+1. **Initialize Knowledge Base**: Click the "Process PDF Knowledge Base" button to index your PDFs
+2. **Select Model Source**: Choose between Hugging Face and LM Studio models
+3. **Submit Queries**: Enter your questions and optionally upload images or videos
+4. **View Results**: See the retrieved information and model-generated responses
+
+## 🚄 Performance Optimizations
+
+- **Hardware Detection**: Automatically uses MPS for Apple Silicon, CUDA for NVIDIA GPUs, or falls back to CPU
+- **Mixed Precision**: Uses FP16 precision when available to improve inference speed
+- **Video Frame Caching**: Avoids redundant processing of previously analyzed videos
+- **Parallel Processing**: Uses multi-threading for video frame extraction and analysis
+- **Memory Management**: Implements efficient cleanup of temporary resources
+
+## 🔌 LM Studio Integration
+
+The system can connect to locally running LLM servers through LM Studio:
+
+1. Run LM Studio and load a model (vision models like Qwen2.5-VL-7B-Instruct or Gemma-3 work best)
+2. Make sure the local server is running (typically on http://localhost:1234/v1)
+3. In the RAG interface, select "LMStudio" as the model source
+4. Choose your model from the dropdown
+
+## 📚 Documentation
+
+For more detailed documentation, see the [docs folder](./modular_rag/docs):
+
+- [Cleanup Guide](./modular_rag/docs/CLEANUP_GUIDE.md) - How to organize the repository
+- [RAG Explanation](./modular_rag/docs/RAG_concise_readme.md) - Original system documentation
+- [LM Studio Guide](./modular_rag/docs/LM_STUDIO_FIX_GUIDE.md) - LM Studio integration details
+
+## 📜 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
