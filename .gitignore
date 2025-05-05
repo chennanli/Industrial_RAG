@@ -26,19 +26,21 @@ wheels/
 .installed.cfg
 *.egg
 
-# Data directories - ignore contents but keep the directories
+# Data directories - ignore contents but keep select directories
 RAG_pdf/*
 frame_cache/*
 saved_frames/*
-archieved/*
 offload_folder/*
 temp_backup/*
 
-# Keep directory structure with .gitkeep files
+# Completely ignore these directories
+archieved/
+__pycache__/
+
+# Keep directory structure with .gitkeep files for important directories
 !RAG_pdf/.gitkeep
 !frame_cache/.gitkeep
 !saved_frames/.gitkeep
-!archieved/.gitkeep
 !offload_folder/.gitkeep
 !temp_backup/.gitkeep
 
