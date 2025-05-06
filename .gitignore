@@ -1,62 +1,40 @@
-# Python environment and cache
+# Environment and cache
 qwen25_env/
-__pycache__/
+venv/
+env/
+.venv
+.env
+ENV/
+.Python
 *.py[cod]
 *$py.class
 *.so
-.Python
-.env
-.venv
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Data directories - ignore contents but keep select directories
-RAG_pdf/*
-frame_cache/*
-saved_frames/*
-offload_folder/*
-temp_backup/*
-
-# Completely ignore these directories
-archieved/
 __pycache__/
 
-# Local reference files - not for GitHub
-REMOVE_FOLDERS.md
-modular_rag/docs/CLEANUP_GUIDE.md
-
-# Keep directory structure with .gitkeep files for important directories
-!RAG_pdf/.gitkeep
-!frame_cache/.gitkeep
-!saved_frames/.gitkeep
+# Specific folders to ignore completely
+archieved/
+offload_folder/*
 !offload_folder/.gitkeep
+
+# Debug and development files
+debug_txt_*.txt
+debuglogs.md
+*.backup
+*_backup.*
+*_backup_*.py
+*_copy.py
+*_tail.txt
+test_*.py
+
+# Cache folders - keep folders but ignore contents
+frame_cache/*
+!frame_cache/.gitkeep
+temp_backup/*
 !temp_backup/.gitkeep
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+# Keep image folder
+!image/
+!image/*
 
 # OS specific
 .DS_Store
@@ -67,6 +45,5 @@ modular_rag/docs/CLEANUP_GUIDE.md
 ehthumbs.db
 Thumbs.db
 
-# Logs
-*.log
-logs/
+# Cleanup instructions
+REMOVE_FOLDERS.md
