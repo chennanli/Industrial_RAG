@@ -4,9 +4,23 @@ CSS styles for the RAG UI
 
 # Define CSS styling for the UI
 css = """
+/* Force container to use full width of browser window */
 .gradio-container {
-    max-width: 1200px;
-    margin: auto;
+    max-width: 100% !important; /* Override any theme default */
+    width: 100% !important;
+    margin: 0 auto !important;
+}
+
+/* Ensure content areas expand properly */
+.main, .contain, .wrap, .wrap-inner, .container {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+/* Override any theme constraints */
+.gradio-app {
+    width: 100% !important;
+    max-width: none !important;
 }
 footer {
     display: none !important;
@@ -15,12 +29,12 @@ footer {
     display: none !important;
 }
 .panel {
-    background-color: #fffaf0; /* Light warm solar color */
+    background-color: #f7f2e5; /* Lighter background for more contrast */
     border-radius: 12px;
     padding: 15px;
-    margin-bottom: 15px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    border: 1px solid #e5e7eb;
+    margin-bottom: 20px; /* Increased bottom margin for more separation */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15); /* Stronger shadow */
+    border: 3px solid #3f3f3f; /* Darker, thicker border */
 }
 .status-ready {
     background-color: #10b981;
@@ -47,10 +61,12 @@ footer {
     font-weight: bold;
 }
 .header-text {
-    color: #111827;
+    color: #3f3f3f; /* Matched with border color */
     font-weight: bold;
     margin-bottom: 12px;
-    font-size: 1.2em;
+    font-size: 1.3em; /* Slightly larger */
+    border-bottom: 2px solid #3f3f3f; /* Added border under headers */
+    padding-bottom: 8px;
 }
 .pure-text-tab, .image-tab, .video-tab {
     min-height: 40px;
@@ -88,16 +104,17 @@ footer {
     color: #f8fafc !important; /* Light text for high contrast */ 
     padding: 15px;
     border-radius: 8px;
-    margin-top: 10px;
-    border: 1px solid #334155;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    margin-top: 15px;
+    border: 2px solid #f8fafc; /* Matching light border with text for contrast */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3); /* Stronger shadow */
 }
 .source-box h3 {
     color: #f8fafc !important; /* Light text title */
     font-weight: bold;
     margin-bottom: 12px;
-    border-bottom: 1px solid #475569;
-    padding-bottom: 4px;
+    border-bottom: 2px solid #f8fafc; /* Thicker, matching border */
+    padding-bottom: 8px;
+    font-size: 1.2em; /* Slightly larger */
 }
 .source-box * {
     color: #f8fafc !important; /* Ensure all content is light */

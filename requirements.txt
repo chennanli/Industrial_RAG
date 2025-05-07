@@ -3,12 +3,15 @@ gradio>=4.0.0
 transformers>=4.35.0
 torch>=2.0.0
 numpy>=1.24.0
+requests>=2.31.0
+tqdm>=4.65.0
 
 # RAG Dependencies
 langchain>=0.0.267
-langchain-community
+langchain-community>=0.0.10
 faiss-cpu>=1.7.4
 sentence-transformers>=2.2.2
+huggingface-hub>=0.20.0
 
 # PDF Processing (install at least one)
 pymupdf>=1.22.5  # Primary PDF processor (fitz)
@@ -18,6 +21,7 @@ pdfplumber>=0.10.0  # Alternative PDF processor
 opencv-python>=4.8.0
 Pillow>=10.0.0
 qwen-vl-utils==0.0.8
+timm>=0.9.5  # For transformer-based image models
 
 # LM Studio integration
 openai>=1.0.0
@@ -28,6 +32,11 @@ uvicorn>=0.23.0
 python-multipart>=0.0.6
 jinja2>=3.1.2
 aiofiles>=23.2.1
+pydantic>=2.0.0
 
 # Fallback dependencies
 scikit-learn>=1.3.0  # For when LangChain is not installed
+
+# Optional utilities
+matplotlib>=3.7.0  # For visualization
+pyyaml>=6.0.0  # For configuration files

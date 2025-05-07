@@ -173,7 +173,7 @@ def create_pdf_processing_panel():
     return pdf_panel, init_button, init_output
 
 def create_query_panel():
-    """Create query input panel with mode selection and cancel button"""
+    """Create query input panel with mode selection, video settings, saved frames, and cancel button"""
     with gr.Group(elem_classes="panel") as query_panel:
         gr.Markdown("### Enter Your Question", elem_classes="header-text")
         
@@ -195,11 +195,51 @@ def create_query_panel():
         image_input = gr.Image(label="Upload Image (Optional)", type="filepath")
         video_input = gr.Video(label="Upload Video (Optional)")
         
+        # Video settings (initially hidden)
+        with gr.Group(visible=False) as video_settings:
+            gr.Markdown("### Video Frame Settings", elem_classes="header-text")
+            with gr.Row():
+                frame_interval = gr.Slider(
+                    minimum=1,
+                    maximum=10,
+                    value=2,
+                    step=1,
+                    label="Frame Interval (seconds)",
+                    info="Extract one frame every X seconds"
+                )
+                max_frames = gr.Slider(
+                    minimum=5,
+                    maximum=100,
+                    value=10,
+                    step=5,
+                    label="Maximum Frames",
+                    info="Maximum number of frames to extract"
+                )
+        
+        # Saved frames section (initially hidden)
+        with gr.Group(visible=False) as saved_frames_panel:
+            gr.Markdown("### Use Existing Frames", elem_classes="header-text")
+            from modular_rag.utils.video_utils import get_session_choices
+            session_choices, _ = get_session_choices()
+            session_dropdown = gr.Dropdown(
+                choices=session_choices,
+                label="Select Saved Frame Session",
+                info="Choose a previously extracted frame set"
+            )
+            
+            with gr.Row():
+                load_session_btn = gr.Button("Load Selected Session", variant="primary")
+                refresh_btn = gr.Button("Refresh Session List")
+                clear_frames_btn = gr.Button("Clear Loaded Frames", variant="stop")
+        
         with gr.Row():
             submit_button = gr.Button("Submit Query", variant="primary", elem_classes="submit-btn")
             cancel_button = gr.Button("Cancel Processing", variant="stop", elem_classes="cancel-btn")
+        
+        # Add gallery for frames (initially hidden)
+        frames_gallery = gr.Gallery(label="Extracted Video Frames", visible=False)
     
-    return query_panel, query_input, image_input, video_input, mode_selection, submit_button, cancel_button
+    return query_panel, query_input, image_input, video_input, mode_selection, frame_interval, max_frames, video_settings, saved_frames_panel, session_dropdown, load_session_btn, refresh_btn, clear_frames_btn, frames_gallery, submit_button, cancel_button
 
 def create_output_panels():
     """Create output display panels"""

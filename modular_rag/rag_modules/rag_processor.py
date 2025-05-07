@@ -5,7 +5,8 @@ import tempfile
 
 # Use absolute imports instead of relative imports
 from modular_rag.utils.config import MODEL_CONFIG, FRAME_CACHE_DIR
-from modular_rag.utils.helpers import extract_video_frames, get_video_cache_dir, clean_temp_files, format_source_info, print_debug, handle_exception
+from modular_rag.utils.helpers import clean_temp_files, format_source_info, print_debug, handle_exception
+from modular_rag.utils.video_utils import extract_frames, get_frame_paths
 from modular_rag.rag_modules.vector_store import get_relevant_context
 
 # Conditional imports based on model source
@@ -109,8 +110,20 @@ Please provide a concise but complete answer based on both the image content and
     except Exception as e:
         return handle_exception(e, "processing image RAG query"), "", []
 
-def process_video_rag(video_path, query, top_k=3):
-    """Process a video-based RAG query"""
+def process_video_rag(video_path, query, frame_interval=2, max_frames=10, top_k=3, progress=None):
+    """Process a video-based RAG query with configurable frame extraction
+    
+    Args:
+        video_path: Path to the video file
+        query: The query to answer
+        frame_interval: Extract one frame every X seconds
+        max_frames: Maximum number of frames to extract
+        top_k: Number of context chunks to retrieve
+        progress: Optional progress callback function
+        
+    Returns:
+        tuple: (frame_descriptions, final_response, sources)
+    """
     if not video_path:
         return "Please upload a video", "", []  # Empty string for answer and empty sources list
     
@@ -124,11 +137,13 @@ def process_video_rag(video_path, query, top_k=3):
         if "image_processor" not in model_interface:
             return "Error: The selected model does not support video processing", "", []
         
-        # Get the cache directory for this video
-        cache_dir = get_video_cache_dir(video_path, FRAME_CACHE_DIR)
-        
         # Extract frames from the video
-        frames = extract_video_frames(video_path, cache_dir)
+        frames, session_dir = extract_frames(
+            video_path, 
+            frame_interval=frame_interval,
+            max_frames=max_frames,
+            progress=progress
+        )
         
         if not frames:
             return "Could not extract frames from video", "", []
@@ -136,13 +151,17 @@ def process_video_rag(video_path, query, top_k=3):
         # Process each frame with description
         frame_descriptions = []
         
-        for time_pos, frame_path in frames:
+        for i, (second, frame_path) in enumerate(frames):
+            # Update progress if provided
+            if progress:
+                progress(0.5 + (i / len(frames)) * 0.5, desc=f"Analyzing frame at {second}s...")
+                
             # Generate description for each frame
             description_prompt = "Describe this video frame in detail, focusing on any technical equipment, issues, or abnormalities visible."
             description, _ = model_interface["image_processor"](description_prompt, frame_path, max_tokens=1024)
             
             # Format timestamp and add to descriptions
-            time_stamp = f"{int(time_pos // 60)}min {int(time_pos % 60)}sec"
+            time_stamp = f"{int(second // 60)}min {int(second % 60)}sec"
             frame_descriptions.append(f"**Frame at {time_stamp}**: {description}")
         
         # Combine descriptions for search query
